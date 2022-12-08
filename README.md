@@ -55,7 +55,7 @@ sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-c
 }
 ```
 
-- Create the **IAM Role** with **Custom trust policy** role type by using above policy; Sample JSON below
+- Create the **IAM Role** with **Custom trust policy** role type and by using above policy; Sample JSON below
 
 ```json
 {
