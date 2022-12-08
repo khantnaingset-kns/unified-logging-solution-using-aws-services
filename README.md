@@ -46,7 +46,7 @@ sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-c
 
 ```json
 {
-	"Version": "2012-10-17",
+  "Version": "2012-10-17",
   "Statement": [{
     "Effect": "Allow",
     "Action": "kinesis:PutRecord",
