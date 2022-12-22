@@ -1,52 +1,24 @@
 # Unified Logging Solution using AWS Services
 
-This article/repo is all about instructions, steps, and usage of IAC (Infrastructure as a Code) on how to construct a unified logging solution inside AWS using CloudWatch, Kinesis, Kinesis Firehose, and OpenSearch. Despite the fact that there are numerous logging solutions available, this one is best suited for organizations that rely heavily on AWS for infrastructure. There is no need to rely on other provider or services, everything can be done within the AWS.
+Logging is the most important aspects of modern cloud and application developments. There are too many logging solutions out there, but if the services and applications are in AWS, it’s better to use this solution. Of course, there are several drawbacks, like cost, but by using this method, there is no need for extra setup; everything will take place inside one provider, which can easily manage security and scalability without too many overheads.
+
+This article/repo is all about manual instructions and steps, and using IAC (Infrastructure as a Code) on how to construct a unified logging solution inside AWS using CloudWatch, Kinesis, Kinesis Firehose, and OpenSearch. Despite the fact that there are numerous logging solutions available, this one is best suited for organizations that rely heavily on AWS for infrastructure. There is no need to rely on other provider or services, everything can be done within the AWS.
 
 ![infra-diagram.png](/assets/images/infra-diagram.png)
 
-Logs could come from anywhere, CloudTrail's, Ec2, S3, Billing, or Custom Applications, but in this one, I’m about to use logs from Ec2 Debian Based Instance as example.
+Logs could come from anywhere, CloudTrail's, EC2, S3, Billing, or Custom Applications, but in this one, I’m about to use logs from EC2 Debian Based Instance, lambda functions, AWS Glue and CloudTrail.
 
 ## **Setup using AWS UI Wizard**
 
-**Ec2 Logs to CloudWatch**
-
-- Create **Ec2 Instance**
-- Create the **IAM Role** with **CloudWatchAgentServerPolicy.**
-- Attached the created **IAM Role** to Ec2 Instance
-- Install **CloudWatch agent**
-
-   
-
-```bash
-wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
-```
-
-```bash
-sudo dpkg -i -E ./amazon-cloudwatch-agent.deb
-```
-
-- Run the cloud watch agent wizard, (This will ask series of questions, and will configure CloudWatch agent by itself)
-
-```bash
-sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-config-wizard
-```
-
-- Start the agent
-
-```bash
-sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/bin/config.json -s
-```
-
-- Now, log can be view in CloudWatch Logs Group by configure logs group name.
-
-**CloudWatch to Amazon Kinesis**
+## Setup the Kinesis Data Stream
 
 - Create the **Kinesis Data Stream** in **Amazon Kinesis.**
-- Create the **IAM Policy** for to access Kinesis Stream from **CloudWatch** with following permission
+- And then,
+- Create the **IAM Policy** with a name ****called **KinesisDataStreamAccessPolicy** for to access Kinesis Stream from **CloudWatch** with following permission
 
 ```json
 {
-  "Version": "2012-10-17",
+	"Version": "2012-10-17",
   "Statement": [{
     "Effect": "Allow",
     "Action": "kinesis:PutRecord",
@@ -55,7 +27,7 @@ sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-c
 }
 ```
 
-- Create the **IAM Role** with **Custom trust policy** role type by custom JSON **(Since the CloudWatch logs is not in already defined AWS Services, need to write custom policy)**
+- Create the **IAM Role** with a name ****called **CloudWatchLogsToKinesisRole** with **Custom trust policy** role type by custom JSON **(Since the CloudWatch logs is not in already defined AWS Services, need to write custom policy)**
 
 ```json
 {
@@ -75,13 +47,119 @@ sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-c
 }
 ```
 
-- During **IAM Role** creation, attached the above **IAM Policy**,
-- Go to the **CloudWatch** and select the desired **Log Group**
+- During **IAM Role** creation, attached the **KinesisDataStreamAccessPolicy**,
+- Name this IAM Policy as
+
+## AWS Glue Logs from CloudWatch to Amazon Kinesis
+
+- Create the IAM Role with **AWSGlueServiceRole**
+- Go to **AWS Glue Studio** Console
+- Click on **Jobs**
+- Create the **Job** with **Visual with a source and target** template
+- Go to **Visual** tab
+- Click on **Data source - S3 bucket** block and Choose **data source** from **S3 Bucket** (Need to upload some dataset in CSV format into S3!!!)
+- Click on **Apply Mapping** Block and configure the desire output of dataset in **Apply Mapping. (**Can view sample output in this menu.)
+- Click on **Data target - S3 bucket**  and configure for the processed data target,
+- Go to **Job details** tab
+- Attached the created **IAM Role**
+
+After that save the job and click on **Run**. Every logs generated by glue will be in **CloudWatch.** To know specific location click on created job under **Jobs** tab and go to **Runs.** Under the run there is the link for **CloudWatch** logs location.
+
+- After running the jobs go to glue log groups in **CloudWatch** and select on log group and click on **Action**
 - Select to **Action Subscription Filters.**
 - To configure the Destination choose **Create Kinesis Subscription Filter**.
     - Select **Current Account**.
     - Select your Kinesis data stream from the dropdown list.
-    - Select the IAM role that you previously created.
+    - In the IAM Role selection select **CloudWatchLogsToKinesisRole.**
+- Review the **Distribution method**:
+    - **By Log Stream** - Verifies that downstream consumers can 
+    aggregate log events by log stream, but might be less efficient. This 
+    method might also incur higher streaming costs because it requires more 
+    shards.
+    - **Random** - Distributes the load across Kinesis stream shards, but downstream consumers can't aggregate log events by log stream.
+- Configure log format and named the filter (Filter is the main point in streaming to other services)
+- Verify the pattern
+- Click **Start Streaming**
+
+## AWS CloudTrail Logs From CloudWatch to Amazon Kinesis
+
+- Go to **CloudTrail** Dashboard
+- Click on **Create trail**
+- Give **Trail name** as **GeneralTrail**
+- Select **Create new S3 bucket** and give new bucket name
+- Check **Enabled** on **Log file SSE-KMS encryption** for better security
+- Choose **New** on **Customer managed AWS KMS key** and give name for new KMS key
+- Check **Enabled** on **Log file validation**
+- Check **Enabled** on **CloudWatch Logs**
+    - Give CloudWatch Logs group name as **GeneralTrailLogGroup**
+    - Give new IAM Role name as **GeneralTrailCloudWatchRole**
+- Click **Next**
+- Check on all **Event type** so CloudTrail can collect logs for everything. On **Data events** and **Insights events** choose prefer services. (On Data events **CloudTrail** can collect everything from **Lambda, DynamoDB** and **RDS** as well)
+- Click **Next** and Create the **CloudTrail**
+
+After above steps
+
+- Go to the **CloudWatch** and select the **GeneralTrailLogGroup**
+- Select to **Action Subscription Filters.**
+- To configure the Destination choose **Create Kinesis Subscription Filter**.
+    - Select **Current Account**.
+    - Select your Kinesis data stream from the dropdown list.
+    - In the IAM Role selection select **CloudWatchLogsToKinesisRole.**
+- Review the **Distribution method**:
+    - **By Log Stream** - Verifies that downstream consumers can 
+    aggregate log events by log stream, but might be less efficient. This 
+    method might also incur higher streaming costs because it requires more 
+    shards.
+    - **Random** - Distributes the load across Kinesis stream shards, but downstream consumers can't aggregate log events by log stream.
+- Configure log format and named the filter (Filter is the main point in streaming to other services)
+- Verify the pattern
+- Click **Start Streaming**
+
+## **Ec2 Logs from CloudWatch to Amazon Kinesis**
+
+- Create **EC2 Instance**
+- Create the **IAM Role**  with the name called **EC2CloudWatchAccessRole CloudWatchAgentServerPolicy.**
+- Attached the created **EC2CloudWatchAccessRole** to EC2 Instance
+- Install **CloudWatch agent**
+
+   
+
+**For Ubuntu or Debian**
+
+```bash
+wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
+```
+
+```bash
+sudo dpkg -i -E ./amazon-cloudwatch-agent.deb
+```
+
+For Amazon Linux or RPM
+
+```bash
+sudo yum install amazon-cloudwatch-agent -y
+```
+
+- Run the cloud watch agent wizard, (This will ask series of questions, and will configure CloudWatch agent by itself)
+
+```bash
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-config-wizard
+```
+
+- Point to the system logs file in Wizard: `/var/log/syslog` in Ubuntu or Debian and `/var/log/boot.log` in amazon Linux or RPM based
+- Start the agent
+
+```bash
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/bin/config.json -s
+```
+
+- Now, log can be view in CloudWatch Logs Group by configure logs group name.
+- Go to the **CloudWatch** and select the EC2 **Log Group**
+- Select to **Action Subscription Filters.**
+- To configure the Destination choose **Create Kinesis Subscription Filter**.
+    - Select **Current Account**.
+    - Select your Kinesis data stream from the dropdown list.
+    - In the IAM Role selection select **CloudWatchLogsToKinesisRole.**
 - Review the **Distribution method**:
     - **By Log Stream** - Verifies that downstream consumers can 
     aggregate log events by log stream, but might be less efficient. This 
@@ -98,6 +176,7 @@ sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-c
     - Create **bucket** for storing the **firehose logs backup**
 - Go to **AWS Lambda**
     - Create function to process **Kinesis Logs** aka ETL Function**; using the following JavaScript code** below. **(Following code only work in Node.js 18 runtime or above )**
+    - Function is rather simple but had to add UTF8 to base 64 conversion, otherwise **firehose** will show delivery error
 
 ```jsx
 import zlib from "zlib";
@@ -215,17 +294,17 @@ After creating the security groups:
     - Click on **Create delivery stream**
     
 
-When all of the above steps are finished, need login into OpenSearch using master username and password. Inside the OpenSearch need to do few configuration. Since, **Fine grant control** is enable at OpenSearch, need to grant permissions to **Firehose Delivery** to deliver the data to **OpenSearch.**
+When all of the above steps are finished, need login into OpenSearch using master username and password. Inside the OpenSearch need to do few configuration. Since, F**ine grant control** is enable at OpenSearch, need to grant permissions to **Firehose Delivery** to deliver the data to **OpenSearch.**
 
 - Login into **OpenSearch** Dashboard using **master username and password**
 - Go the **Security** and Clicks **Role**
 - In the role section, click on **Create role**
 - Give the role name as **firehose-role**
-- For cluster permissions, add `cluster_composite_ops`
- and `cluster_monitor`
+- For cluster permissions, add `cluster_composite_ops` for cluster operation
+ and `cluster_monitor` for monitoring the cluster
 - Under **Index permissions** choose **Index Patterns** and enter `unified-logs*`
 - Under **Permissions,** add three action groups: `crud` `create_index`and `manage`
-- Choose **Save Role Definition**
+- Click **Create Role**
 
 And then
 
